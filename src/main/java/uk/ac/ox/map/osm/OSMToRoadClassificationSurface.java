@@ -14,13 +14,17 @@ import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.TupleTag;
 import org.geotools.data.simple.SimpleFeatureIterator;
 import org.geotools.data.simple.SimpleFeatureSource;
+import org.geotools.feature.simple.SimpleFeatureTypeBuilder;
 import org.geotools.geometry.jts.JTSFactoryFinder;
 import org.geotools.geometry.jts.ReferencedEnvelope;
+import org.geotools.grid.Envelopes;
+import org.geotools.grid.GridFeatureBuilder;
 import org.geotools.grid.Grids;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
 
 import org.locationtech.jts.geom.*;
 import org.opengis.feature.simple.SimpleFeature;
+import org.opengis.feature.simple.SimpleFeatureType;
 
 import java.io.IOException;
 import java.util.List;
@@ -36,22 +40,29 @@ public class OSMToRoadClassificationSurface {
         public void processElement(@Element Way element, OutputReceiver<KV<String, String>> receiver) {
             if(Optional.ofNullable(element.getTags()).isPresent()){
                 List<Tag> tags = element.getTags();
-                String highway = "";
+                String highway = null;
                 for (Tag tag: tags){
                     if(tag.k.equalsIgnoreCase("highway")){
                         highway = tag.v;
                         break;
                     }
                 }
-                if(highway != ""){
+                if(highway != null){
+                    if(highway.equalsIgnoreCase("trunk")){
+                        System.out.println(element);
+                    }
                     if(Optional.ofNullable(element.getNds()).isPresent()){
                         List<Nd> nds = element.getNds();
                         for (int i = 0; i < nds.size() - 2; i++) {
                             int start = nds.get(i).ref;
                             int end = nds.get(i + 1).ref;
-                            StringBuilder stringBuilder = new StringBuilder();
-                            stringBuilder.append(end).append(",").append(highway);
-                            receiver.output(KV.of(String.valueOf(start),stringBuilder.toString()));
+                            int code = fromString(highway);
+                            if(code > 0){
+                                StringBuilder stringBuilder = new StringBuilder();
+                                stringBuilder.append(end).append(",").append(code);
+                                receiver.output(KV.of(String.valueOf(start),stringBuilder.toString()));
+                            }
+
                         }
                     }
                 }
@@ -66,14 +77,14 @@ public class OSMToRoadClassificationSurface {
             stringBuilder.append(element.lat).append(",").append(element.lon);
             if(Optional.ofNullable(element.getTags()).isPresent()){
                 List<Tag> tags = element.getTags();
-                String highway = "";
+                String highway = null;
                 for (Tag tag: tags){
                     if(tag.k.equalsIgnoreCase("highway")){
                         highway = tag.v;
                         break;
                     }
                 }
-                if(highway != ""){
+                if(highway != null){
                     receiver.output(KV.of(String.valueOf(element.id), stringBuilder.toString()));
                 }
             } else {
@@ -166,8 +177,7 @@ public class OSMToRoadClassificationSurface {
                                 Coordinate end = new Coordinate(Double.valueOf(lon), Double.valueOf(lat));
                                 Coordinate[] coordinates = new Coordinate[] {start, end};
                                 LineString lineString = geometryFactory.createLineString(coordinates);
-                                Envelope lineStringEnvelopeInternal = lineString.getEnvelopeInternal();
-                                SimpleFeatureSource simpleFeatureSource = buildGridInfo(lineStringEnvelopeInternal);
+                                SimpleFeatureSource simpleFeatureSource = buildGridInfo(lineString);
                                 try {
                                     SimpleFeatureIterator iterator = simpleFeatureSource.getFeatures().features();
                                     while (iterator.hasNext()) {
@@ -176,12 +186,11 @@ public class OSMToRoadClassificationSurface {
                                         if(polygon.intersects(lineString)){
                                             StringBuilder stringBuilder = new StringBuilder();
                                             Envelope polygonEnvelopeInternal = polygon.getEnvelopeInternal();
-                                            Point centroid = polygon.getCentroid();
-                                            stringBuilder.append(centroid.getCoordinate().x).append(",")
-                                                    .append(centroid.getCoordinate().x);
-                                            int code = fromString(highway);
-                                            if(code > 0)
-                                                c.output(KV.of(stringBuilder.toString(), code));
+                                            double x = polygonEnvelopeInternal.getMinX() + (polygonEnvelopeInternal.getWidth() / 2);
+                                            double y = polygonEnvelopeInternal.getMinY() + (polygonEnvelopeInternal.getHeight() / 2);
+                                            stringBuilder.append(x).append(",")
+                                                    .append(y);
+                                            c.output(KV.of(stringBuilder.toString(), Integer.valueOf(highway)));
                                         }
                                     }
                                 } catch (IOException ioE) {
@@ -210,8 +219,9 @@ public class OSMToRoadClassificationSurface {
     public interface OSMToRoadClassificationSurfaceOptions extends PipelineOptions {
 
         @Description("Path of the file to read from")
-        @Default.String("gs://map-osm/inputs/africa/equatorial-guinea/equatorial-guinea-latest.osm.bz2")
-//        @Default.String("gs://map-osm/map.osm.bz2")
+//        @Default.String("gs://map-osm/inputs/africa/equatorial-guinea/equatorial-guinea-latest.osm.bz2")
+//        @Default.String("gs://map-osm/inputs/south-america/brazil/brazil-latest.osm.bz2")
+        @Default.String("gs://map-osm/map.osm.bz2")
         String getInputFile();
 
         void setInputFile(String value);
@@ -241,7 +251,7 @@ public class OSMToRoadClassificationSurface {
                 .withRecordClass(Way.class));
         PCollection<KV<String, String>> ways = osmWays.apply(new ExtractWays());
         PCollection<KV<String, Integer>> join = join(ways, nodes);
-        PCollection<KV<String, Integer>> pixels = join.apply(Max.<String>integersPerKey());
+        PCollection<KV<String, Integer>> pixels = join.apply(Min.<String>integersPerKey());
         pixels.apply(MapElements.via(new FormatPixelAsTextFn()))
                 .apply("WriteCounts", TextIO.write().to(options.getOutput()));
         p.run().waitUntilFinish();
@@ -253,18 +263,29 @@ public class OSMToRoadClassificationSurface {
         run(options);
     }
 
-    private static SimpleFeatureSource buildGridInfo(Envelope envelopeInternal) {
-        double minX = Math.floor(envelopeInternal.getMinX());
-        double maxX = Math.ceil(envelopeInternal.getMaxX());
-        double minY = Math.floor(envelopeInternal.getMinY());
-        double maxY = Math.ceil(envelopeInternal.getMaxY());
+    private static SimpleFeatureSource buildGridInfo(LineString lineString) {
+        Envelope lineStringEnvelopeInternal = lineString.getEnvelopeInternal();
+        double minX = Math.floor(lineStringEnvelopeInternal.getMinX());
+        double maxX = Math.ceil(lineStringEnvelopeInternal.getMaxX());
+        double minY = Math.floor(lineStringEnvelopeInternal.getMinY());
+        double maxY = Math.ceil(lineStringEnvelopeInternal.getMaxY());
         ReferencedEnvelope gridBounds =
                 new ReferencedEnvelope(minX, maxX, minY, maxY, DefaultGeographicCRS.WGS84);
-        return Grids.createSquareGrid(gridBounds, GRID_PIXEL_SIZE_IN_ARC_SECS * (1.0/3600.0));
+        SimpleFeatureTypeBuilder tb = new SimpleFeatureTypeBuilder();
+        tb.setName("grid");
+        tb.add(
+                GridFeatureBuilder.DEFAULT_GEOMETRY_ATTRIBUTE_NAME,
+                Polygon.class,
+                gridBounds.getCoordinateReferenceSystem());
+        tb.add("id", Integer.class);
+        SimpleFeatureType TYPE = tb.buildFeatureType();
+
+        GridFeatureBuilder builder = new IntersectionBuilder(TYPE, lineString);
+        return Grids.createSquareGrid(gridBounds, GRID_PIXEL_SIZE_IN_ARC_SECS * (1.0/3600.0), -1, builder);
     }
 
     public static int fromString(String highwayClass) {
-        int valueOf = 0;
+        int valueOf;
         switch (highwayClass) {
             case "motorway":
                 valueOf = 1;
@@ -308,11 +329,8 @@ public class OSMToRoadClassificationSurface {
             case  "pedestrian":
                 valueOf = 14;
                 break;
-            case  "other":
-                valueOf = 15;
-                break;
             default:
-                valueOf = -1;
+                valueOf = 15;
                 break;
 
         }
