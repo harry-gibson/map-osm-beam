@@ -7,16 +7,16 @@ import java.util.List;
 
 @XmlRootElement
 public class Way {
-    int id;
+    String id;
     List<Nd> nds;
     List<Tag> tags;
 
-    public int getId() {
+    public String getId() {
         return id;
     }
 
     @XmlAttribute
-    public void setId(int id) {
+    public void setId(String id) {
         this.id = id;
     }
 

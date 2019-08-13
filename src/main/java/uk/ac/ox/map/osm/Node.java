@@ -7,12 +7,12 @@ import java.util.List;
 
 @XmlRootElement
 public class Node {
-    int id;
+    String id;
     double lat;
     double lon;
     List<Tag> tags;
 
-    public int getId() {
+    public String getId() {
         return id;
     }
 
@@ -25,7 +25,7 @@ public class Node {
     }
 
     @XmlAttribute
-    public void setId(int id) {
+    public void setId(String id) {
         this.id = id;
     }
 

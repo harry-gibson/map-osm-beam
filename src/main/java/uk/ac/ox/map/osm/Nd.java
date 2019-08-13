@@ -5,14 +5,14 @@ import javax.xml.bind.annotation.XmlType;
 
 @XmlType(propOrder = {"ref"}, name = "nd")
 public class Nd {
-    int ref;
+    String ref;
 
-    public int getRef() {
+    public String getRef() {
         return ref;
     }
 
     @XmlAttribute
-    public void setRef(int ref) {
+    public void setRef(String ref) {
         this.ref = ref;
     }
 
