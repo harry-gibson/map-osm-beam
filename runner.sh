@@ -6,6 +6,6 @@ do
  REGION=$line
  COUNTRY="$(echo ${line} | cut -d"/" -f2)"
  echo "${COUNTRY}"
- mvn -Pdataflow-runner compile exec:java -Dexec.mainClass=uk.ac.ox.map.osm.OSMToRoadClassificationSurface -Dexec.args="--project=map-visualization-dev --stagingLocation=gs://map-osm/staging/ --inputFile=gs://map-osm/inputs/africa/cape-verde/cape-verde-latest.osm.bz2 --output=gs://map-osm/outputs/africa/cape-verde/road-class --region=europe-west1 --workerMachineType=n1-standard-1 --maxNumWorkers=8 --numWorkers=8 --experiments=shuffle_mode=service --runner=DataflowRunner"
+ mvn -Pdataflow-runner compile exec:java -Dexec.mainClass=uk.ac.ox.map.osm.OSMToRoadClassificationSurface -Dexec.args="--project=map-visualization-dev --stagingLocation=gs://map-osm/staging/ --inputFile=gs://map-osm/inputs/${REGION}/${COUNTRY}-latest.osm.bz2 --output=gs://map-osm/outputs/${REGION}/road-class --region=europe-west1 --workerMachineType=n1-standard-1 --maxNumWorkers=8 --numWorkers=8 --experiments=shuffle_mode=service --runner=DataflowRunner"
 done < "$input"
 
