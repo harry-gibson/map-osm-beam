@@ -1,0 +1,11 @@
+south-america/argentina
+south-america/bolivia
+south-america/brazil
+south-america/chile
+south-america/colombia
+south-america/ecuador
+south-america/paraguay
+south-america/peru
+south-america/suriname
+south-america/uruguay
+south-america/venezuela
